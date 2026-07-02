@@ -1,0 +1,49 @@
+# dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# python
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# next
+.next/
+out/
+build/
+dist/
+next-env.d.ts
+
+# environment
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# prisma
+prisma/*.db
+prisma/migrations/dev.db*
+
+# uploads and generated media
+apps/api/storage/
+apps/api/uploads/
+
+# editor and os
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# logs
+*.log
+npm-debug.log*
+
+# prisma generated client
+apps/web/lib/generated/
+
+# typescript build info
+*.tsbuildinfo
