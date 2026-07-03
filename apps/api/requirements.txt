@@ -1,0 +1,31 @@
+# Scrap API. Python 3.12.
+#
+#   py -3.12 -m venv venv
+#   venv\Scripts\activate
+#   pip install -r requirements.txt
+#   uvicorn main:app --host 0.0.0.0 --port 5000 --reload
+#
+# Versions below are the ones this project was built and checked against.
+
+fastapi==0.141.1
+uvicorn[standard]==0.52.4
+python-multipart==0.0.32
+pydantic==2.13.4
+pydantic-settings==2.15.0
+
+# There is no database. Runs are held in memory for the life of the process,
+# which is why nothing here talks to Postgres.
+
+# One unified interface for every model call. The application never talks to a
+# model provider directly.
+litellm==1.98.0
+
+# The run pipeline is a small state graph, so every step is named and the order
+# is fixed rather than implicit.
+langgraph==1.2.11
+
+# Frame extraction from uploaded video, and image resizing before upload.
+opencv-python-headless==5.0.0.93
+pillow==12.3.0
+
+python-dotenv==1.2.3
