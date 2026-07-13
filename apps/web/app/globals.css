@@ -1,0 +1,112 @@
+@import "tailwindcss";
+
+/*
+  Scrap theme. Light only.
+
+  A bright, even surface stack the colour of a well lit sorting hall, with the
+  brand green used for marks, fills and the scan light on the belt.
+
+  The green is split in two on purpose. #5FEE00 is the brand and stays exactly
+  as it is wherever it appears as a fill or a mark, but against white it only
+  reaches about 1.9 to 1, so it cannot carry text. Green text and green icons
+  use --color-brand-text instead, which clears 4.5 to 1.
+
+  Buttons use the Radix classic treatment, defined in components/ui/button.tsx.
+*/
+
+@theme {
+  --color-brand: #5fee00;
+  --color-brand-text: #2f7a00;
+  --color-brand-strong: #4fc900;
+  --color-brand-dim: #2a6b00;
+  --color-brand-ink: #0d2600;
+
+  --color-window: #f1f3ef;
+  --color-panel: #ffffff;
+  --color-surface: #fafbf9;
+  --color-surface-raised: #eef1eb;
+  --color-line: #e3e7df;
+  --color-line-strong: #ccd3c6;
+
+  --color-ink: #14180f;
+  --color-ink-muted: #57604f;
+  --color-ink-faint: #868e7e;
+
+  --color-danger: #c62d1c;
+  --color-warn: #925c00;
+  --color-info: #2f6fb5;
+
+  /* Material colours, weighted for a light background so the nine stay
+     separable beside each other and legible as small chips. */
+  --color-plastic: #2f7fcc;
+  --color-paper: #a8860f;
+  --color-cardboard: #a2662c;
+  --color-metal: #67768a;
+  --color-glass: #10998a;
+  --color-organic: #4e9330;
+  --color-textiles: #9c3f9c;
+  --color-ewaste: #d9551f;
+  --color-other: #6b736b;
+
+  --radius-panel: 44px;
+
+  --font-sans: var(--font-body-face), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-display-face), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-mono-face), ui-monospace, monospace;
+}
+
+@layer base {
+  * {
+    border-color: var(--color-line);
+  }
+
+  html,
+  body {
+    height: 100%;
+  }
+
+  body {
+    background: var(--color-window);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::selection {
+    background: color-mix(in srgb, var(--color-brand) 34%, transparent);
+    color: var(--color-ink);
+  }
+}
+
+@layer components {
+  .brand-wash {
+    background-image: linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--color-brand) 20%, transparent) 0%,
+      transparent 100%
+    );
+  }
+}
+
+@layer utilities {
+  .scroll-slim {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-line-strong) transparent;
+  }
+
+  .scroll-slim::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  .scroll-slim::-webkit-scrollbar-thumb {
+    background-color: var(--color-line-strong);
+    border-radius: 9999px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+
+  .scroll-slim::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
