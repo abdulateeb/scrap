@@ -57,20 +57,23 @@ export function BeltSurface({ running }: { running: boolean }) {
 
   return (
     <group ref={rails}>
-      {/* Deck */}
+      {/* Deck. Brown rubber, which is what a sorting line actually runs on.
+          The colour is kept fairly dark so that light waste on top of it still
+          reads clearly against the belt. */}
       <mesh receiveShadow rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]}>
         <planeGeometry args={[BELT_WIDTH, BELT_LENGTH]} />
-        <meshStandardMaterial color="#2a2f2b" roughness={0.92} metalness={0.06} />
+        <meshStandardMaterial color="#4a3527" roughness={0.94} metalness={0.04} />
       </mesh>
 
-      {/* Cleats */}
+      {/* Cleats. A shade lighter than the deck so the slats stay visible as
+          they travel, without turning into stripes that pull the eye. */}
       <instancedMesh
         ref={slats}
         args={[undefined, undefined, SLAT_COUNT]}
         frustumCulled={false}
       >
         <boxGeometry args={[BELT_WIDTH, 0.055, 0.1]} />
-        <meshStandardMaterial color="#3b423d" roughness={0.68} metalness={0.3} />
+        <meshStandardMaterial color="#63472f" roughness={0.72} metalness={0.12} />
       </instancedMesh>
 
       {/* Side rails, brushed steel so the green gate light has something to
@@ -81,10 +84,14 @@ export function BeltSurface({ running }: { running: boolean }) {
           position={[(side * BELT_WIDTH) / 2 + side * 0.16, 0.14, 0]}
         >
           <boxGeometry args={[0.3, 0.34, BELT_LENGTH]} />
+          {/* Neutral grey, and only moderately metallic. At high metalness
+              with no environment map to reflect, steel renders almost black
+              and picks up whatever colour the nearest light is, which is what
+              made these rails read as dark green. */}
           <meshStandardMaterial
-            color="#8f978d"
-            roughness={0.3}
-            metalness={0.82}
+            color="#a7a9a4"
+            roughness={0.44}
+            metalness={0.35}
           />
         </mesh>
       ))}
