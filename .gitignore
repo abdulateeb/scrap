@@ -32,6 +32,9 @@ prisma/migrations/dev.db*
 apps/api/storage/
 apps/api/uploads/
 
+# vercel
+.vercel
+
 # editor and os
 .vscode/
 .idea/
