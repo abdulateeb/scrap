@@ -1,0 +1,25 @@
+# What is kept out of the upload to Vercel.
+#
+# This matters more than it looks. The Python runtime bundles every file it can
+# reach at build time, and there is no tree shaking. The local virtual
+# environment alone is close to four hundred megabytes, so without this line it
+# would be uploaded and bundled on top of the dependencies Vercel installs from
+# requirements.txt, which is both slow and pointless.
+
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+
+# Secrets never leave the machine. The key is set with `vercel env add`.
+.env
+.env.*
+!.env.example
+
+storage/
+uploads/
+
+Dockerfile
+.dockerignore
