@@ -34,7 +34,7 @@ export function ScanGate({ highlight }: { highlight: boolean }) {
   const post = (side: number) => (
     <mesh key={side} position={[(side * BELT_WIDTH) / 2 + side * 0.34, 0.95, 0]}>
       <boxGeometry args={[0.16, 1.9, 0.16]} />
-      <meshStandardMaterial color="#9aa298" roughness={0.36} metalness={0.82} />
+      <meshStandardMaterial color="#a7a9a4" roughness={0.44} metalness={0.35} />
     </mesh>
   );
 
@@ -45,13 +45,13 @@ export function ScanGate({ highlight }: { highlight: boolean }) {
       {/* Cross beam */}
       <mesh position={[0, 1.86, 0]}>
         <boxGeometry args={[BELT_WIDTH + 1.0, 0.17, 0.22]} />
-        <meshStandardMaterial color="#9aa298" roughness={0.36} metalness={0.82} />
+        <meshStandardMaterial color="#a7a9a4" roughness={0.44} metalness={0.35} />
       </mesh>
 
       {/* Camera housing, pointed down at the belt */}
       <mesh position={[0, 1.64, 0]}>
         <boxGeometry args={[0.5, 0.3, 0.42]} />
-        <meshStandardMaterial color="#3d443a" roughness={0.45} metalness={0.65} />
+        <meshStandardMaterial color="#4a4a46" roughness={0.5} metalness={0.35} />
       </mesh>
       <mesh position={[0, 1.47, 0]} rotation={[Math.PI / 2, 0, 0]}>
         <cylinderGeometry args={[0.1, 0.13, 0.12, 18]} />
