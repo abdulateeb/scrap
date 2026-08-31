@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Archivo, Geist, IBM_Plex_Mono } from "next/font/google";
 
 import { AppShell } from "@/components/shell/app-shell";
-import { Sidebar } from "@/components/shell/sidebar";
+import { MobileBar, Sidebar } from "@/components/shell/sidebar";
 
 import { Theme } from "@radix-ui/themes";
 
@@ -65,7 +65,9 @@ export default function RootLayout({
           scaling="100%"
           panelBackground="solid"
         >
-          <AppShell sidebar={<Sidebar />}>{children}</AppShell>
+          <AppShell sidebar={<Sidebar />} mobileBar={<MobileBar />}>
+            {children}
+          </AppShell>
         </Theme>
       </body>
     </html>
