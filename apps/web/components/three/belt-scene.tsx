@@ -34,16 +34,21 @@ export default function BeltScene({
     >
       <PerspectiveCamera makeDefault position={[0, 1.25, 2.45]} fov={60} />
 
-      {/* A bright hall: strong fill so the belt sits on a light page without
-          reading as a hole, plus a green key at the gate so the scan still
-          reads as the machine's own light. */}
-      <ambientLight intensity={1.05} color="#ffffff" />
-      <directionalLight position={[3, 8, 4]} intensity={2.6} color="#ffffff" />
-      <directionalLight position={[-5, 4, -2]} intensity={0.7} color="#dfe6df" />
+      {/* A bright hall: strong neutral fill so the belt reads as brown rubber
+          rather than taking on a colour cast, plus a green key held close to
+          the gate so the scan still reads as the machine's own light.
+
+          The green light is deliberately weak and short range. When it was
+          strong it spilled down the whole belt and turned the rubber and the
+          waste green, which made the scan gate stop looking like a gate. */}
+      <ambientLight intensity={1.15} color="#ffffff" />
+      <directionalLight position={[3, 8, 4]} intensity={2.8} color="#fff6ec" />
+      <directionalLight position={[-5, 4, -2]} intensity={0.8} color="#e6e6e6" />
       <pointLight
-        position={[0, 1.6, 0]}
-        intensity={highlight ? 30 : 14}
-        distance={9}
+        position={[0, 1.35, 0]}
+        intensity={highlight ? 11 : 5}
+        distance={3.4}
+        decay={2}
         color="#5fee00"
       />
 
