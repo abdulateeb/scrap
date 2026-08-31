@@ -13,9 +13,11 @@ import { cn } from "@/lib/utils";
  */
 export function AppShell({
   sidebar,
+  mobileBar,
   children,
 }: {
   sidebar: React.ReactNode;
+  mobileBar?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
@@ -26,12 +28,22 @@ export function AppShell({
 
       <main
         className={cn(
-          "relative flex min-w-0 flex-1 flex-col overflow-hidden",
-          "border-t border-l border-line bg-panel",
-          "rounded-tl-[44px]",
-          "shadow-[-10px_0_28px_rgba(20,24,15,0.06)]",
+          "relative flex min-w-0 flex-1 flex-col overflow-hidden bg-panel",
+          // Below the medium breakpoint the sidebar is not on screen, so the
+          // panel is the whole window. The inset corner and the left edge only
+          // make sense once there is a sidebar to be inset from.
+          "border-line md:rounded-tl-[44px] md:border-t md:border-l",
+          "md:shadow-[-10px_0_28px_rgba(20,24,15,0.06)]",
         )}
       >
+        {/* Carries the mark on small screens, where the sidebar that normally
+            holds it is hidden. Without this the product has no name on a
+            phone at all. */}
+        {mobileBar ? (
+          <div className="shrink-0 border-b border-line md:hidden">
+            {mobileBar}
+          </div>
+        ) : null}
         {children}
       </main>
     </div>
@@ -49,9 +61,9 @@ export function PanelHeader({
   actions?: React.ReactNode;
 }) {
   return (
-    <header className="flex shrink-0 items-start justify-between gap-4 border-b border-line px-8 py-6">
+    <header className="flex shrink-0 flex-col gap-3 border-b border-line px-4 py-5 sm:flex-row sm:items-start sm:justify-between sm:gap-4 sm:px-8 sm:py-6">
       <div className="min-w-0 space-y-1.5">
-        <h1 className="font-display truncate text-xl font-semibold tracking-tight text-ink">
+        <h1 className="font-display truncate text-lg font-semibold tracking-tight text-ink sm:text-xl">
           {title}
         </h1>
         {description ? (
@@ -77,7 +89,7 @@ export function PanelBody({
 }) {
   return (
     <div className={cn("scroll-slim min-h-0 flex-1 overflow-y-auto", className)}>
-      <div className="px-8 py-7">{children}</div>
+      <div className="px-4 py-5 sm:px-6 sm:py-6 lg:px-8 lg:py-7">{children}</div>
     </div>
   );
 }
