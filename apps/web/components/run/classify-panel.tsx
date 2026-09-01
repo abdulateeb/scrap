@@ -190,7 +190,7 @@ export function ClassifyPanel() {
                 empty. */}
             {file ? (
               <div className="flex flex-wrap items-center gap-3">
-                <div className="flex min-w-0 max-w-md flex-1 basis-72 items-center gap-3 rounded-lg border border-line bg-surface p-2">
+                <div className="flex min-w-0 max-w-md flex-1 basis-full items-center gap-3 rounded-lg border border-line bg-surface p-2 sm:basis-72">
                   {preview ? (
                     /* eslint-disable-next-line @next/next/no-img-element */
                     <img
@@ -273,7 +273,7 @@ export function ClassifyPanel() {
           {result.error ? <Alert tone="warn">{result.error}</Alert> : null}
 
           <Card>
-            <CardContent className="flex flex-wrap items-center gap-x-10 gap-y-4 pt-5">
+            <CardContent className="flex flex-wrap items-center gap-x-8 gap-y-4 pt-5 sm:gap-x-10">
               {[
                 ["Frames", String(result.frameCount)],
                 ["Items", String(result.detectionCount)],
