@@ -94,7 +94,10 @@ export function BeltHero({
         dragging ? "border-brand-text/60" : "border-line",
       )}
     >
-      <div className="h-[300px] lg:h-[360px]" aria-hidden>
+      {/* Shorter on a phone. At the desktop height the belt pushes the upload
+          control off the bottom of the screen, so the first thing a person
+          sees is scenery and not the thing they came to do. */}
+      <div className="h-[190px] sm:h-[300px] lg:h-[360px]" aria-hidden>
         <BeltScene running={running} highlight={dragging} />
       </div>
 
