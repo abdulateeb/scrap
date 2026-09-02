@@ -30,11 +30,14 @@ const plexMono = IBM_Plex_Mono({
   weight: ["400", "500", "600"],
 });
 
+// The tab icon and the home screen icon are not named here. Next picks up
+// app/favicon.ico and app/apple-icon.png on its own, and a manual entry here
+// only competed with them while pointing at the full size logo, which a browser
+// would then have to shrink itself.
 export const metadata: Metadata = {
   title: "Scrap",
   description:
     "An AI system that automatically classifies waste on the conveyor belt in material recovery facilities.",
-  icons: { icon: "/scrap_logo.png" },
 };
 
 export const viewport: Viewport = {
