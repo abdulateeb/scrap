@@ -27,6 +27,7 @@ async def classify_upload(
     file: UploadFile = File(...),
     source_kind: str = Form("image"),
     max_frames: int | None = Form(None),
+    thorough: bool | None = Form(None),
 ) -> Result:
     content_type = (file.content_type or "").lower()
     if content_type not in ACCEPTED:
@@ -44,19 +45,31 @@ async def classify_upload(
     if len(payload) > settings.max_upload_bytes:
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail="The uploaded file is larger than the limit.",
+            detail=(
+                "The uploaded file is larger than the "
+                f"{settings.max_upload_bytes // (1024 * 1024)} MB limit."
+            ),
         )
 
     wanted = max_frames or settings.default_video_frames
     wanted = max(1, min(wanted, settings.max_video_frames))
 
+    kind = source_kind if source_kind in SOURCE_KINDS else "image"
+
+    # Tiling costs five model calls instead of one. An upload is worth that. A
+    # live capture is not, by default, because the camera is scanning repeatedly
+    # and cadence matters more there than squeezing every small item out of one
+    # frame. The caller can ask for either explicitly.
+    tile = thorough if thorough is not None else kind != "capture"
+
     try:
         return await classify(
             upload=payload,
             content_type=content_type,
-            source_kind=source_kind if source_kind in SOURCE_KINDS else "image",
+            source_kind=kind,
             source_name=file.filename or "upload",
             max_frames=wanted,
+            tile=tile,
         )
     except (UnsupportedMedia, MediaUnreadable) as error:
         raise HTTPException(
