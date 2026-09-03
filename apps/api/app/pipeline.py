@@ -44,6 +44,7 @@ class RunState(TypedDict, total=False):
     upload: bytes
     content_type: str
     max_frames: int
+    tile: bool
 
     frames: list[ExtractedFrame]
     results: list[Classified]
@@ -65,7 +66,12 @@ async def classify_frames(state: RunState) -> dict[str, Any]:
     # A single still gets the tiled treatment, which costs a handful of calls
     # and finds markedly more. A video already has many frames, so each one gets
     # a single pass and the frames themselves supply the coverage.
-    tiled = len(frames) == 1
+    #
+    # A live capture is also a single frame, but tiling it means five model calls
+    # for every scan, which is why the camera could never keep a short cadence.
+    # The caller decides, so live mode can trade thoroughness for speed while an
+    # upload stays as thorough as it was.
+    tiled = len(frames) == 1 and state.get("tile", True)
 
     async def one(frame: ExtractedFrame) -> Classified:
         try:
@@ -153,7 +159,12 @@ _graph = build_graph()
 
 
 async def classify(
-    upload: bytes, content_type: str, source_kind: str, source_name: str, max_frames: int
+    upload: bytes,
+    content_type: str,
+    source_kind: str,
+    source_name: str,
+    max_frames: int,
+    tile: bool = True,
 ) -> Result:
     started = time.perf_counter()
 
@@ -162,6 +173,7 @@ async def classify(
             "upload": upload,
             "content_type": content_type,
             "max_frames": max_frames,
+            "tile": tile,
         }
     )
 
