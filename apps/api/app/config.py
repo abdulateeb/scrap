@@ -46,12 +46,11 @@ class Settings(BaseSettings):
     # frame, so five passes. Set to 1 to switch tiling off.
     tile_grid: int = Field(default=2, alias="SCRAP_TILE_GRID")
 
-    # How often the live camera mode sends a frame to the model. A model call
-    # takes seconds, so this is a scan cadence and not a frame rate.
-    live_interval_seconds: int = Field(default=4, alias="SCRAP_LIVE_INTERVAL")
-
     # ---------------------------------------------------------------- media
-    max_upload_bytes: int = Field(default=200 * 1024 * 1024)
+    # 100 MB, which is the largest request body the deployment platform will
+    # carry. The default matches the ceiling on purpose, so a file that passes
+    # locally also passes in production instead of failing only once deployed.
+    max_upload_bytes: int = Field(default=100 * 1024 * 1024)
     default_video_frames: int = Field(default=8)
     max_video_frames: int = Field(default=20)
     frame_max_edge: int = Field(default=1400)
