@@ -5,6 +5,8 @@ import { useFrame } from "@react-three/fiber";
 import type { InstancedMesh, Group } from "three";
 import { Object3D } from "three";
 
+import { beltTexture } from "@/components/three/textures";
+
 export const BELT_LENGTH = 22;
 export const BELT_WIDTH = 4.2;
 export const BELT_SPEED = 2.4;
@@ -24,6 +26,15 @@ export function BeltSurface({ running }: { running: boolean }) {
   const rails = React.useRef<Group>(null);
   const dummy = React.useMemo(() => new Object3D(), []);
   const offset = React.useRef(0);
+
+  const deck = React.useMemo(() => {
+    const texture = beltTexture();
+    // The belt is far longer than it is wide, so the grain has to repeat down
+    // its length or it smears into stripes.
+    texture.repeat.set(2, 11);
+    return texture;
+  }, []);
+  React.useEffect(() => () => deck.dispose(), [deck]);
 
   // Lay the slats out once, then only the offset changes per frame.
   React.useEffect(() => {
@@ -58,11 +69,16 @@ export function BeltSurface({ running }: { running: boolean }) {
   return (
     <group ref={rails}>
       {/* Deck. Brown rubber, which is what a sorting line actually runs on.
-          The colour is kept fairly dark so that light waste on top of it still
-          reads clearly against the belt. */}
+          The painted surface carries the grain and the polished centre track
+          that a loaded belt wears into itself, which is most of what separates
+          rubber from a flat brown rectangle. */}
       <mesh receiveShadow rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]}>
         <planeGeometry args={[BELT_WIDTH, BELT_LENGTH]} />
-        <meshStandardMaterial color="#4a3527" roughness={0.94} metalness={0.04} />
+        <meshStandardMaterial
+          map={deck}
+          roughness={0.95}
+          metalness={0.03}
+        />
       </mesh>
 
       {/* Cleats. A shade lighter than the deck so the slats stay visible as
@@ -72,8 +88,10 @@ export function BeltSurface({ running }: { running: boolean }) {
         args={[undefined, undefined, SLAT_COUNT]}
         frustumCulled={false}
       >
-        <boxGeometry args={[BELT_WIDTH, 0.055, 0.1]} />
-        <meshStandardMaterial color="#63472f" roughness={0.72} metalness={0.12} />
+        <boxGeometry args={[BELT_WIDTH, 0.045, 0.07]} />
+        {/* Close to the deck in tone. When the cleats were much lighter they
+            read as timber planks rather than as rubber ribs on a rubber belt. */}
+        <meshStandardMaterial color="#553d2b" roughness={0.88} metalness={0.05} />
       </instancedMesh>
 
       {/* Side rails, brushed steel so the green gate light has something to
