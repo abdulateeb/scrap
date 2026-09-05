@@ -28,28 +28,46 @@ export default function BeltScene({
 }) {
   return (
     <Canvas
+      // Percentage closer filtering by name, because the default soft variant
+      // is deprecated in this version of three and warns on every mount.
+      shadows="percentage"
       dpr={[1, 1.75]}
       gl={{ antialias: true, alpha: true, powerPreference: "high-performance" }}
       style={{ pointerEvents: "none" }}
     >
       <PerspectiveCamera makeDefault position={[0, 1.25, 2.45]} fov={60} />
 
-      {/* A bright hall: strong neutral fill so the belt reads as brown rubber
-          rather than taking on a colour cast, plus a green key held close to
-          the gate so the scan still reads as the machine's own light.
+      {/* Plain hall lighting, all of it neutral.
 
-          The green light is deliberately weak and short range. When it was
-          strong it spilled down the whole belt and turned the rubber and the
-          waste green, which made the scan gate stop looking like a gate. */}
-      <ambientLight intensity={1.15} color="#ffffff" />
-      <directionalLight position={[3, 8, 4]} intensity={2.8} color="#fff6ec" />
-      <directionalLight position={[-5, 4, -2]} intensity={0.8} color="#e6e6e6" />
+          There used to be a green lamp over the gate and a sheet of green light
+          lying on the deck. Between them they tinted the rubber and every item
+          on it, so the belt read as a lit surface rather than as a belt. The
+          scan now shows itself through the camera and a thin sensor line, and
+          the light is left to do nothing but light.
+
+          One directional light casts, because shadows under the items are what
+          actually sits them on the belt. The rest only fill. */}
+      <ambientLight intensity={0.85} color="#ffffff" />
+      <directionalLight
+        castShadow
+        position={[3.5, 7, 4]}
+        intensity={2.6}
+        color="#fff4e8"
+        shadow-mapSize={[1024, 1024]}
+        shadow-camera-left={-6}
+        shadow-camera-right={6}
+        shadow-camera-top={6}
+        shadow-camera-bottom={-6}
+        shadow-bias={-0.0012}
+      />
+      <directionalLight position={[-5, 4, -2]} intensity={0.7} color="#dfe6ec" />
+      {/* The camera's own working light, white and held tight to the gate. */}
       <pointLight
-        position={[0, 1.35, 0]}
-        intensity={highlight ? 11 : 5}
-        distance={3.4}
+        position={[0, 1.2, 0]}
+        intensity={highlight ? 6 : 2.6}
+        distance={2.6}
         decay={2}
-        color="#5fee00"
+        color="#eaf3ff"
       />
 
       <group position={[0, -0.22, 0]}>
