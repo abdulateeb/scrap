@@ -9,9 +9,10 @@ import { cn } from "@/lib/utils";
  * The hero, and the signature of this interface.
  *
  * The product is a camera watching a conveyor, so the interface is a camera
- * watching a conveyor. The belt is not decoration behind the controls: it is
- * the drop target. Drag a belt photo or a clip of the line onto it and the
- * scan gate lights up.
+ * watching a conveyor. Dropping a file is handled by the panel for the whole
+ * window rather than by this section alone, because a drop that lands just
+ * outside a small target is handled by the browser instead, which navigates
+ * away and loses the page. This takes `dragging` and lights the scan gate.
  *
  * The canvas is loaded only in the browser and never blocks the page. Keyboard
  * and screen reader users are not sent here at all; the file button underneath
@@ -48,11 +49,7 @@ function readVisibility(): boolean {
   return !document.hidden;
 }
 
-export function BeltHero({
-  onDropFiles,
-}: {
-  onDropFiles: (files: FileList | null) => void;
-}) {
+export function BeltHero({ dragging = false }: { dragging?: boolean }) {
   const reduced = React.useSyncExternalStore(
     subscribeMotion,
     readMotion,
@@ -63,32 +60,11 @@ export function BeltHero({
     readVisibility,
     () => true,
   );
-  const [dragging, setDragging] = React.useState(false);
-  const depth = React.useRef(0);
 
   const running = visible && !reduced;
 
   return (
     <section
-      onDragEnter={(event) => {
-        event.preventDefault();
-        depth.current += 1;
-        setDragging(true);
-      }}
-      onDragOver={(event) => event.preventDefault()}
-      onDragLeave={() => {
-        depth.current -= 1;
-        if (depth.current <= 0) {
-          depth.current = 0;
-          setDragging(false);
-        }
-      }}
-      onDrop={(event) => {
-        event.preventDefault();
-        depth.current = 0;
-        setDragging(false);
-        onDropFiles(event.dataTransfer.files);
-      }}
       className={cn(
         "relative isolate overflow-hidden rounded-2xl border bg-[#e8ece5] transition-colors duration-300",
         dragging ? "border-brand-text/60" : "border-line",
@@ -113,7 +89,7 @@ export function BeltHero({
 
       <span className="sr-only">
         A conveyor belt carrying mixed waste under a scan gate. Use the file
-        button below to upload.
+        button below to upload, or drop files anywhere on the page.
       </span>
     </section>
   );
