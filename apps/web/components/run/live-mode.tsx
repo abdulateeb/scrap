@@ -9,7 +9,7 @@ import { Alert, Badge } from "@/components/ui/feedback";
 import { classify } from "@/lib/api";
 import { materialMeta } from "@/lib/materials";
 import type { Frame } from "@/lib/types";
-import { formatPercent } from "@/lib/utils";
+import { cn, formatPercent } from "@/lib/utils";
 
 /**
  * Live mode.
@@ -28,7 +28,21 @@ import { formatPercent } from "@/lib/utils";
  * a flip control on the picture itself.
  */
 
-const INTERVAL_MS = 4000;
+/**
+ * Two cadences, because one number could not serve both jobs.
+ *
+ * Fast sends a single model call per scan, which lands in about a second, so a
+ * two second cadence is real rather than aspirational. Thorough tiles the frame
+ * into a grid and classifies each tile as well as the whole, which is five
+ * calls and measured at roughly four and a half seconds, so its interval is set
+ * above that instead of quietly dropping every other tick.
+ */
+const MODES = {
+  fast: { intervalMs: 2000, thorough: false, label: "Fast" },
+  thorough: { intervalMs: 6000, thorough: true, label: "Thorough" },
+} as const;
+
+type Mode = keyof typeof MODES;
 
 type Facing = "user" | "environment";
 
@@ -49,6 +63,14 @@ export function LiveMode() {
   const [cameras, setCameras] = React.useState<MediaDeviceInfo[]>([]);
   const [deviceId, setDeviceId] = React.useState<string>("");
   const [facing, setFacing] = React.useState<Facing>("environment");
+  const [mode, setMode] = React.useState<Mode>("fast");
+
+  // The scan loop reads the mode through a ref, so changing it mid run takes
+  // effect on the next scan without tearing down the interval or the camera.
+  const modeRef = React.useRef<Mode>(mode);
+  React.useEffect(() => {
+    modeRef.current = mode;
+  }, [mode]);
 
   /**
    * Browsers hide camera labels until the user has granted permission once, so
@@ -84,6 +106,12 @@ export function LiveMode() {
   React.useEffect(() => stop, [stop]);
 
   React.useEffect(() => {
+    // The lint rule reads this as setting state in an effect body. It is not:
+    // refreshCameras awaits enumerateDevices first, so the state lands in a
+    // later task. Listing the cameras on mount is the bootstrap half of the
+    // subscription below, and without it the picker is empty until a device is
+    // plugged in or unplugged.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void refreshCameras();
     // Cameras can be plugged in or removed while the page is open.
     const media = navigator.mediaDevices;
@@ -168,6 +196,7 @@ export function LiveMode() {
       const result = await classify({
         file: new File([blob], "live.jpg", { type: "image/jpeg" }),
         sourceKind: "capture",
+        thorough: MODES[modeRef.current].thorough,
       });
 
       const next = result.frames[0];
@@ -192,6 +221,21 @@ export function LiveMode() {
     }
   }, []);
 
+  const schedule = React.useCallback(
+    (intervalMs: number) => {
+      if (timer.current !== null) window.clearInterval(timer.current);
+      timer.current = window.setInterval(scanOnce, intervalMs);
+    },
+    [scanOnce],
+  );
+
+  // Changing the mode while the camera is running re-times the loop in place,
+  // so the picture does not blink and the counts are not lost.
+  React.useEffect(() => {
+    if (!live) return;
+    schedule(MODES[mode].intervalMs);
+  }, [live, mode, schedule]);
+
   async function start() {
     setError(null);
     const failure = await openStream({ deviceId, facing });
@@ -201,7 +245,7 @@ export function LiveMode() {
     }
     setLive(true);
     window.setTimeout(scanOnce, 600);
-    timer.current = window.setInterval(scanOnce, INTERVAL_MS);
+    schedule(MODES[mode].intervalMs);
   }
 
   /** Switch camera without losing the counts already gathered. */
@@ -284,7 +328,9 @@ export function LiveMode() {
                 }
                 aria-hidden
               />
-              {scanning ? "Scanning" : `Scans every ${INTERVAL_MS / 1000} s`}
+              {scanning
+                ? "Scanning"
+                : `Scans every ${MODES[mode].intervalMs / 1000} s`}
             </span>
           ) : null}
 
@@ -318,6 +364,37 @@ export function LiveMode() {
               Start live scan
             </Button>
           )}
+
+          {/* Speed against thoroughness. Fast is one model call per scan.
+              Thorough tiles the frame and runs five, which finds more small
+              items but cannot hold a short cadence. */}
+          <div
+            role="group"
+            aria-label="Scan mode"
+            className="inline-flex rounded-lg border border-line bg-surface-raised p-0.5"
+          >
+            {(Object.keys(MODES) as Mode[]).map((value) => (
+              <button
+                key={value}
+                type="button"
+                aria-pressed={mode === value}
+                onClick={() => setMode(value)}
+                title={
+                  value === "fast"
+                    ? "One pass per scan, every 2 seconds"
+                    : "Tiled into a grid, five passes per scan, every 6 seconds"
+                }
+                className={cn(
+                  "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+                  mode === value
+                    ? "bg-panel text-ink shadow-sm"
+                    : "text-ink-muted hover:text-ink",
+                )}
+              >
+                {MODES[value].label}
+              </button>
+            ))}
+          </div>
 
           {/* The camera list. A machine often has more than one registered and
               some of them do not open, so the user needs to be able to pick a
