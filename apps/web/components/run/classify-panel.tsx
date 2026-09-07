@@ -1,7 +1,14 @@
 "use client";
 
 import * as React from "react";
-import { FileVideo, ImageUp, RotateCcw, X } from "lucide-react";
+import {
+  CircleStop,
+  FileVideo,
+  ImageUp,
+  RotateCcw,
+  Trash2,
+  X,
+} from "lucide-react";
 
 import {
   AnnotatedFrame,
@@ -13,14 +20,33 @@ import { BeltHero } from "@/components/three/belt-hero";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, SectionLabel } from "@/components/ui/card";
 import { Input } from "@/components/ui/field";
-import { Alert, Spinner } from "@/components/ui/feedback";
+import { Alert, Badge, Spinner } from "@/components/ui/feedback";
 import { classify } from "@/lib/api";
-import type { Result, SourceKind } from "@/lib/types";
+import { env } from "@/lib/env";
+import type { MaterialKey } from "@/lib/materials";
+import type { Composition, Result, SourceKind } from "@/lib/types";
 import { cn, formatBytes, formatDuration } from "@/lib/utils";
 
 const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
 const VIDEO_TYPES = ["video/mp4", "video/quicktime", "video/x-matroska"];
-const MAX_BYTES = 200 * 1024 * 1024;
+
+// Kept in one place in lib/env, because a guard here that disagrees with what
+// the platform accepts is worse than no guard at all: the person picks a file,
+// waits through the upload, and then gets a bare 413 instead of this message.
+const MAX_BYTES = env.maxUploadBytes;
+
+type JobStatus = "queued" | "running" | "done" | "failed";
+
+interface Job {
+  id: string;
+  file: File;
+  kind: SourceKind;
+  /** Object URL for images, so the queue can show a thumbnail. */
+  preview: string | null;
+  status: JobStatus;
+  result: Result | null;
+  error: string | null;
+}
 
 function kindOf(file: File): SourceKind | null {
   if (IMAGE_TYPES.includes(file.type)) return "image";
@@ -28,98 +54,349 @@ function kindOf(file: File): SourceKind | null {
   return null;
 }
 
+/**
+ * One composition over several files.
+ *
+ * Shares are recomputed from the summed counts rather than averaged, because
+ * averaging percentages across runs of different sizes would let a file with
+ * three items pull as hard as a file with three hundred. The mean confidence is
+ * weighted by count for the same reason.
+ */
+function combine(results: Result[]): Composition | null {
+  const totals = new Map<MaterialKey, { count: number; confidence: number }>();
+  let framesUsed = 0;
+  let framesExcluded = 0;
+
+  for (const result of results) {
+    const composition = result.composition;
+    if (!composition) continue;
+    framesUsed += composition.framesUsed;
+    framesExcluded += composition.framesExcluded;
+    for (const share of composition.shares) {
+      const running = totals.get(share.material) ?? { count: 0, confidence: 0 };
+      running.count += share.count;
+      running.confidence += share.meanConfidence * share.count;
+      totals.set(share.material, running);
+    }
+  }
+
+  const total = [...totals.values()].reduce((sum, one) => sum + one.count, 0);
+  if (total === 0) return null;
+
+  return {
+    totalDetections: total,
+    framesUsed,
+    framesExcluded,
+    shares: [...totals.entries()]
+      .map(([material, one]) => ({
+        material,
+        count: one.count,
+        share: one.count / total,
+        meanConfidence: one.confidence / one.count,
+      }))
+      .sort((a, b) => b.share - a.share),
+  };
+}
+
 export function ClassifyPanel() {
   const inputRef = React.useRef<HTMLInputElement>(null);
+  const abort = React.useRef<AbortController | null>(null);
+  const cancelled = React.useRef(false);
+
   const [tab, setTab] = React.useState<"upload" | "live">("upload");
-  const [file, setFile] = React.useState<File | null>(null);
-  const [preview, setPreview] = React.useState<string | null>(null);
-  const [sourceKind, setSourceKind] = React.useState<SourceKind>("image");
+  const [jobs, setJobs] = React.useState<Job[]>([]);
+  const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const [maxFrames, setMaxFrames] = React.useState(8);
+  const [notice, setNotice] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
-  const [pending, setPending] = React.useState(false);
-  const [result, setResult] = React.useState<Result | null>(null);
+  const [running, setRunning] = React.useState(false);
+  const [dragging, setDragging] = React.useState(false);
   const [frameIndex, setFrameIndex] = React.useState(0);
   const [active, setActive] = React.useState<number | null>(null);
 
-  // Object URLs are revoked when the preview is replaced or the panel unmounts.
+  // Object URLs are revoked when the panel unmounts. Removing a single job
+  // revokes its own URL at the point of removal.
+  const jobsRef = React.useRef<Job[]>([]);
+  React.useEffect(() => {
+    jobsRef.current = jobs;
+  }, [jobs]);
   React.useEffect(() => {
     return () => {
-      if (preview) URL.revokeObjectURL(preview);
+      for (const job of jobsRef.current) {
+        if (job.preview) URL.revokeObjectURL(job.preview);
+      }
     };
-  }, [preview]);
-
-  const accept = React.useCallback((next: File, kind: SourceKind) => {
-    if (next.size > MAX_BYTES) {
-      setError(`The file is larger than ${formatBytes(MAX_BYTES)}.`);
-      return;
-    }
-    setError(null);
-    setResult(null);
-    setFile(next);
-    setSourceKind(kind);
-    setPreview((old) => {
-      if (old) URL.revokeObjectURL(old);
-      return kind === "image" ? URL.createObjectURL(next) : null;
-    });
   }, []);
 
-  const handleFiles = React.useCallback(
-    (list: FileList | null) => {
-      const next = list?.[0];
-      if (!next) return;
-      const kind = kindOf(next);
-      if (!kind) {
-        setError("Use a JPEG, PNG or WebP image, or an MP4, MOV or MKV video.");
-        return;
-      }
-      setTab("upload");
-      accept(next, kind);
-    },
-    [accept],
-  );
+  /**
+   * Takes everything that was dropped, pasted or picked. Files that cannot be
+   * used are counted and reported in one line rather than one alert each, so
+   * dropping a folder of mixed content does not bury the screen.
+   */
+  const addFiles = React.useCallback((list: FileList | File[] | null) => {
+    const incoming = Array.from(list ?? []);
+    if (incoming.length === 0) return;
 
-  function reset() {
-    setFile(null);
-    setResult(null);
+    const accepted: Job[] = [];
+    const wrongType: string[] = [];
+    const tooBig: string[] = [];
+
+    for (const file of incoming) {
+      const kind = kindOf(file);
+      if (!kind) {
+        wrongType.push(file.name);
+        continue;
+      }
+      if (file.size > MAX_BYTES) {
+        tooBig.push(file.name);
+        continue;
+      }
+      accepted.push({
+        id: `${file.name}-${file.size}-${file.lastModified}-${Math.random()
+          .toString(36)
+          .slice(2, 8)}`,
+        file,
+        kind,
+        preview: kind === "image" ? URL.createObjectURL(file) : null,
+        status: "queued",
+        result: null,
+        error: null,
+      });
+    }
+
+    const complaints: string[] = [];
+    if (wrongType.length > 0) {
+      complaints.push(
+        wrongType.length === 1
+          ? `${wrongType[0]} is not a supported type`
+          : `${wrongType.length} files were not a supported type`,
+      );
+    }
+    if (tooBig.length > 0) {
+      complaints.push(
+        tooBig.length === 1
+          ? `${tooBig[0]} is over ${formatBytes(MAX_BYTES)}`
+          : `${tooBig.length} files were over ${formatBytes(MAX_BYTES)}`,
+      );
+    }
+
+    setTab("upload");
+    setNotice(
+      complaints.length > 0
+        ? `${complaints.join(", and ")}. ${
+            accepted.length > 0
+              ? `${accepted.length} added to the queue.`
+              : "Nothing was added."
+          }`
+        : null,
+    );
+
+    if (accepted.length === 0) return;
     setError(null);
+    setJobs((old) => [...old, ...accepted]);
+    setSelectedId((old) => old ?? accepted[0].id);
+  }, []);
+
+  /**
+   * The whole window is the drop target.
+   *
+   * Only the belt used to accept a drop, which meant a drop anywhere else was
+   * handled by the browser: it navigated away and opened the file, losing the
+   * page. Preventing the default across the window is what stops that, so this
+   * listener exists as much to avoid the navigation as to accept the file.
+   */
+  React.useEffect(() => {
+    let depth = 0;
+    const carriesFiles = (event: DragEvent) =>
+      Array.from(event.dataTransfer?.types ?? []).includes("Files");
+
+    const onEnter = (event: DragEvent) => {
+      if (!carriesFiles(event)) return;
+      event.preventDefault();
+      depth += 1;
+      setDragging(true);
+    };
+    const onOver = (event: DragEvent) => {
+      if (!carriesFiles(event)) return;
+      event.preventDefault();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+    };
+    const onLeave = (event: DragEvent) => {
+      if (!carriesFiles(event)) return;
+      depth = Math.max(0, depth - 1);
+      if (depth === 0) setDragging(false);
+    };
+    const onDrop = (event: DragEvent) => {
+      // Prevented even when the payload is not a file, because the browser
+      // opening a dragged link over the page is the same lost session.
+      event.preventDefault();
+      depth = 0;
+      setDragging(false);
+      if (carriesFiles(event)) addFiles(event.dataTransfer?.files ?? null);
+    };
+
+    window.addEventListener("dragenter", onEnter);
+    window.addEventListener("dragover", onOver);
+    window.addEventListener("dragleave", onLeave);
+    window.addEventListener("drop", onDrop);
+    return () => {
+      window.removeEventListener("dragenter", onEnter);
+      window.removeEventListener("dragover", onOver);
+      window.removeEventListener("dragleave", onLeave);
+      window.removeEventListener("drop", onDrop);
+    };
+  }, [addFiles]);
+
+  /** A screenshot on the clipboard is the fastest way to try the thing. */
+  React.useEffect(() => {
+    const onPaste = (event: ClipboardEvent) => {
+      const files = event.clipboardData?.files;
+      // Text pasted into the frames box carries no files, so this leaves
+      // ordinary typing alone.
+      if (!files || files.length === 0) return;
+      event.preventDefault();
+      addFiles(files);
+    };
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  }, [addFiles]);
+
+  function removeJob(id: string) {
+    setJobs((old) => {
+      const going = old.find((job) => job.id === id);
+      if (going?.preview) URL.revokeObjectURL(going.preview);
+      return old.filter((job) => job.id !== id);
+    });
+    setSelectedId((old) => (old === id ? null : old));
+  }
+
+  function clearAll() {
+    abort.current?.abort();
+    cancelled.current = true;
+    for (const job of jobs) {
+      if (job.preview) URL.revokeObjectURL(job.preview);
+    }
+    setJobs([]);
+    setSelectedId(null);
+    setNotice(null);
+    setError(null);
+    setRunning(false);
     setFrameIndex(0);
     setActive(null);
-    setPreview((old) => {
-      if (old) URL.revokeObjectURL(old);
-      return null;
-    });
     if (inputRef.current) inputRef.current.value = "";
   }
 
-  async function submit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!file) {
-      setError("Choose an image or a video first.");
-      return;
-    }
-    setPending(true);
-    setError(null);
-    try {
-      const value = await classify({
-        file,
-        sourceKind,
-        maxFrames: sourceKind === "video" ? maxFrames : undefined,
-      });
-      setResult(value);
-      setFrameIndex(0);
-      setActive(null);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Classification failed.");
-    } finally {
-      setPending(false);
-    }
+  function cancelRun() {
+    cancelled.current = true;
+    abort.current?.abort();
   }
 
-  const frame = result?.frames[frameIndex];
+  /**
+   * Runs the queue one file at a time.
+   *
+   * Sequential on purpose. The model calls are already run in parallel inside
+   * one file, so firing several files at once would only queue behind the same
+   * concurrency limit while making the progress display a lie.
+   */
+  async function runQueue() {
+    const pending = jobs.filter(
+      (job) => job.status === "queued" || job.status === "failed",
+    );
+    if (pending.length === 0) return;
+
+    cancelled.current = false;
+    setRunning(true);
+    setError(null);
+
+    for (const job of pending) {
+      if (cancelled.current) break;
+
+      setJobs((old) =>
+        old.map((one) =>
+          one.id === job.id ? { ...one, status: "running", error: null } : one,
+        ),
+      );
+      setSelectedId(job.id);
+
+      const controller = new AbortController();
+      abort.current = controller;
+
+      try {
+        const result = await classify(
+          {
+            file: job.file,
+            sourceKind: job.kind,
+            maxFrames: job.kind === "video" ? maxFrames : undefined,
+          },
+          { signal: controller.signal },
+        );
+        setJobs((old) =>
+          old.map((one) =>
+            one.id === job.id ? { ...one, status: "done", result } : one,
+          ),
+        );
+      } catch (cause) {
+        if (cancelled.current) {
+          setJobs((old) =>
+            old.map((one) =>
+              one.id === job.id ? { ...one, status: "queued" } : one,
+            ),
+          );
+          break;
+        }
+        const message =
+          cause instanceof Error ? cause.message : "Classification failed.";
+        setJobs((old) =>
+          old.map((one) =>
+            one.id === job.id
+              ? { ...one, status: "failed", error: message }
+              : one,
+          ),
+        );
+      } finally {
+        abort.current = null;
+      }
+    }
+
+    setRunning(false);
+  }
+
+  const done = jobs.filter((job) => job.status === "done" && job.result);
+  const doneResults = done.map((job) => job.result as Result);
+  const selected = jobs.find((job) => job.id === selectedId) ?? null;
+  const frame = selected?.result?.frames[frameIndex];
+  const pendingCount = jobs.filter(
+    (job) => job.status === "queued" || job.status === "failed",
+  ).length;
+  const batch = jobs.length > 1;
+
+  const totalDuration = doneResults.reduce(
+    (sum, one) => sum + one.durationMs,
+    0,
+  );
 
   return (
-    <form onSubmit={submit} className="space-y-5">
-      <BeltHero onDropFiles={handleFiles} />
+    <div className="space-y-5">
+      <BeltHero dragging={dragging} />
+
+      {/* Shown while a file is anywhere over the page, because the drop is now
+          accepted anywhere rather than on the belt alone. */}
+      {dragging ? (
+        <div
+          className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-ink/45 backdrop-blur-[2px]"
+          aria-hidden
+        >
+          <div className="rounded-2xl border-2 border-dashed border-brand bg-panel px-8 py-6 text-center shadow-xl">
+            <ImageUp className="mx-auto size-8 text-brand-text" aria-hidden />
+            <p className="mt-2 text-sm font-medium text-ink">
+              Drop to add to the queue
+            </p>
+            <p className="font-mono text-[11px] text-ink-faint">
+              Images and videos, as many as you like
+            </p>
+          </div>
+        </div>
+      ) : null}
 
       <div
         role="tablist"
@@ -162,9 +439,10 @@ export function ClassifyPanel() {
             <input
               ref={inputRef}
               type="file"
+              multiple
               className="sr-only"
               accept={[...IMAGE_TYPES, ...VIDEO_TYPES].join(",")}
-              onChange={(event) => handleFiles(event.target.files)}
+              onChange={(event) => addFiles(event.target.files)}
             />
 
             <button
@@ -177,107 +455,220 @@ export function ClassifyPanel() {
                 Click to upload
                 <span className="font-normal text-ink-muted">
                   {" "}
-                  or drag onto the belt
+                  or drop files anywhere, or paste a screenshot
                 </span>
               </span>
               <span className="font-mono text-[11px] text-ink-faint">
-                JPG, PNG, WEBP, MP4, MOV, MKV
+                JPG, PNG, WEBP, MP4, MOV, MKV &middot; up to{" "}
+                {formatBytes(MAX_BYTES)} each
               </span>
             </button>
 
-            {/* The action row only exists once there is a file. A primary
-                button with nothing to act on is what made this area feel
-                empty. */}
-            {file ? (
-              <div className="flex flex-wrap items-center gap-3">
-                <div className="flex min-w-0 max-w-md flex-1 basis-full items-center gap-3 rounded-lg border border-line bg-surface p-2 sm:basis-72">
-                  {preview ? (
-                    /* eslint-disable-next-line @next/next/no-img-element */
-                    <img
-                      src={preview}
-                      alt=""
-                      className="size-11 shrink-0 rounded-md border border-line object-cover"
-                    />
-                  ) : (
-                    <span className="flex size-11 shrink-0 items-center justify-center rounded-md border border-line bg-surface-raised">
-                      <FileVideo className="size-4 text-ink-faint" aria-hidden />
+            {notice ? <Alert tone="warn">{notice}</Alert> : null}
+            {error ? <Alert tone="danger">{error}</Alert> : null}
+
+            {jobs.length > 0 ? (
+              <>
+                <div className="flex items-center justify-between gap-3">
+                  <SectionLabel>
+                    Queue
+                    <span className="ml-2 font-mono text-[11px] normal-case tracking-normal text-ink-faint">
+                      {done.length} of {jobs.length} done
                     </span>
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-xs font-medium text-ink">
-                      {file.name}
-                    </p>
-                    <p className="font-mono text-[11px] text-ink-faint">
-                      {formatBytes(file.size)}
-                    </p>
+                  </SectionLabel>
+
+                  <div className="flex items-center gap-2">
+                    {jobs.some((job) => job.kind === "video") ? (
+                      <label className="flex items-center gap-2 text-xs text-ink-muted">
+                        Frames
+                        <Input
+                          type="number"
+                          min={1}
+                          max={20}
+                          value={maxFrames}
+                          disabled={running}
+                          onChange={(event) =>
+                            setMaxFrames(
+                              Math.max(
+                                1,
+                                Math.min(20, Number(event.target.value) || 1),
+                              ),
+                            )
+                          }
+                          className="w-16"
+                        />
+                      </label>
+                    ) : null}
+
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={clearAll}
+                      aria-label="Clear the queue"
+                    >
+                      <Trash2 aria-hidden />
+                    </Button>
                   </div>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    onClick={reset}
-                    aria-label="Remove the selected file"
-                  >
-                    <X aria-hidden />
-                  </Button>
                 </div>
 
-                {sourceKind === "video" ? (
-                  <label className="flex items-center gap-2 text-xs text-ink-muted">
-                    Frames
-                    <Input
-                      type="number"
-                      min={1}
-                      max={20}
-                      value={maxFrames}
-                      onChange={(event) =>
-                        setMaxFrames(Number(event.target.value) || 1)
-                      }
-                      className="w-20"
-                    />
-                  </label>
-                ) : null}
+                <ul className="scroll-slim max-h-72 space-y-1.5 overflow-y-auto">
+                  {jobs.map((job, index) => (
+                    <li key={job.id}>
+                      {/* A row, not a button wrapping a button. Selecting and
+                          removing are two separate controls side by side. */}
+                      <div
+                        className={cn(
+                          "flex w-full items-center gap-3 rounded-lg border p-2 transition-colors",
+                          job.id === selectedId
+                            ? "border-brand-text/50 bg-brand/8"
+                            : "border-line bg-surface hover:bg-surface-raised",
+                        )}
+                      >
+                        <span className="w-5 shrink-0 text-center font-mono text-[11px] text-ink-faint">
+                          {index + 1}
+                        </span>
 
-                <Button
-                  type="submit"
-                  variant="classic"
-                  size="lg"
-                  className="min-w-[9.5rem]"
-                  disabled={pending}
-                >
-                  {pending ? <Spinner className="text-brand-ink" /> : null}
-                  {pending ? "Classifying" : "Classify"}
-                </Button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedId(job.id);
+                            setFrameIndex(0);
+                            setActive(null);
+                          }}
+                          aria-current={
+                            job.id === selectedId ? "true" : undefined
+                          }
+                          className="flex min-w-0 flex-1 items-center gap-3 rounded-md text-left focus-visible:ring-2 focus-visible:ring-brand focus-visible:outline-none"
+                        >
+                          {job.preview ? (
+                            /* eslint-disable-next-line @next/next/no-img-element */
+                            <img
+                              src={job.preview}
+                              alt=""
+                              className="size-9 shrink-0 rounded-md border border-line object-cover"
+                            />
+                          ) : (
+                            <span className="flex size-9 shrink-0 items-center justify-center rounded-md border border-line bg-surface-raised">
+                              <FileVideo
+                                className="size-4 text-ink-faint"
+                                aria-hidden
+                              />
+                            </span>
+                          )}
 
-                {result ? (
-                  <Button
-                    type="button"
-                    variant="silver"
-                    size="lg"
-                    onClick={reset}
-                    aria-label="Start again"
-                  >
-                    <RotateCcw aria-hidden />
-                  </Button>
-                ) : null}
-              </div>
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-xs font-medium text-ink">
+                              {job.file.name}
+                            </span>
+                            <span className="block font-mono text-[11px] text-ink-faint">
+                              {formatBytes(job.file.size)}
+                              {job.result
+                                ? ` · ${job.result.detectionCount} items`
+                                : ""}
+                            </span>
+                          </span>
+                        </button>
+
+                        {job.status === "running" ? (
+                          <Spinner className="text-brand-text" />
+                        ) : null}
+                        <Badge
+                          tone={
+                            job.status === "done"
+                              ? "brand"
+                              : job.status === "failed"
+                                ? "danger"
+                                : "neutral"
+                          }
+                        >
+                          {job.status}
+                        </Badge>
+
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          disabled={running}
+                          onClick={() => removeJob(job.id)}
+                          aria-label={`Remove ${job.file.name}`}
+                        >
+                          <X aria-hidden />
+                        </Button>
+                      </div>
+
+                      {job.error ? (
+                        <p className="mt-1 pl-8 text-[11px] text-danger">
+                          {job.error}
+                        </p>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+
+                <div className="flex flex-wrap items-center gap-3">
+                  {running ? (
+                    <Button type="button" variant="silver" onClick={cancelRun}>
+                      <CircleStop aria-hidden />
+                      Stop
+                    </Button>
+                  ) : (
+                    <Button
+                      type="button"
+                      variant="classic"
+                      size="lg"
+                      className="min-w-[9.5rem]"
+                      disabled={pendingCount === 0}
+                      onClick={() => void runQueue()}
+                    >
+                      {pendingCount === 0
+                        ? "All done"
+                        : batch
+                          ? `Classify ${pendingCount}`
+                          : "Classify"}
+                    </Button>
+                  )}
+
+                  {done.length > 0 && !running ? (
+                    <Button
+                      type="button"
+                      variant="silver"
+                      size="lg"
+                      onClick={clearAll}
+                      aria-label="Start again"
+                    >
+                      <RotateCcw aria-hidden />
+                    </Button>
+                  ) : null}
+                </div>
+              </>
             ) : null}
-
-            {error ? <Alert tone="danger">{error}</Alert> : null}
           </CardContent>
         </Card>
       )}
 
-      {tab === "upload" && result ? (
+      {tab === "upload" && done.length > 0 ? (
         <>
-          {result.error ? <Alert tone="warn">{result.error}</Alert> : null}
-
           <Card>
             <CardContent className="flex flex-wrap items-center gap-x-8 gap-y-4 pt-5 sm:gap-x-10">
               {[
-                ["Frames", String(result.frameCount)],
-                ["Items", String(result.detectionCount)],
-                ["Took", formatDuration(result.durationMs)],
+                ["Files", `${done.length}`],
+                [
+                  "Frames",
+                  String(
+                    doneResults.reduce((sum, one) => sum + one.frameCount, 0),
+                  ),
+                ],
+                [
+                  "Items",
+                  String(
+                    doneResults.reduce(
+                      (sum, one) => sum + one.detectionCount,
+                      0,
+                    ),
+                  ),
+                ],
+                ["Took", formatDuration(totalDuration)],
               ].map(([label, value]) => (
                 <div key={label}>
                   <SectionLabel>{label}</SectionLabel>
@@ -289,51 +680,66 @@ export function ClassifyPanel() {
             </CardContent>
           </Card>
 
-          <CompositionPanel composition={result.composition} />
+          {/* One figure over everything classified so far. With a single file
+              this is that file's own composition, so the panel reads the same
+              as it always did. */}
+          <CompositionPanel composition={combine(doneResults)} />
 
-          {result.frames.length > 1 ? (
-            <div className="scroll-slim flex gap-2 overflow-x-auto pb-1">
-              {result.frames.map((item, index) => (
-                <button
-                  key={item.index}
-                  type="button"
-                  onClick={() => {
-                    setFrameIndex(index);
-                    setActive(null);
-                  }}
-                  aria-current={index === frameIndex ? "true" : undefined}
-                  className={cn(
-                    "shrink-0 rounded-lg border px-3 py-1.5 text-xs transition-colors",
-                    index === frameIndex
-                      ? "border-brand-text/50 bg-brand/12 text-ink"
-                      : "border-line bg-surface text-ink-muted hover:text-ink",
-                  )}
-                >
-                  {index + 1}
-                  <span className="ml-1.5 font-mono text-[10px] text-ink-faint">
-                    {item.detections.length}
-                  </span>
-                </button>
-              ))}
-            </div>
-          ) : null}
+          {selected?.result ? (
+            <div className="space-y-3">
+              <SectionLabel>
+                {batch ? `Frames of ${selected.file.name}` : "Frames"}
+              </SectionLabel>
 
-          {frame ? (
-            <div className="grid gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
-              <AnnotatedFrame
-                frame={frame}
-                activeIndex={active}
-                onHover={setActive}
-              />
-              <DetectionList
-                frame={frame}
-                activeIndex={active}
-                onHover={setActive}
-              />
+              {selected.result.error ? (
+                <Alert tone="warn">{selected.result.error}</Alert>
+              ) : null}
+
+              {selected.result.frames.length > 1 ? (
+                <div className="scroll-slim flex gap-2 overflow-x-auto pb-1">
+                  {selected.result.frames.map((item, index) => (
+                    <button
+                      key={item.index}
+                      type="button"
+                      onClick={() => {
+                        setFrameIndex(index);
+                        setActive(null);
+                      }}
+                      aria-current={index === frameIndex ? "true" : undefined}
+                      className={cn(
+                        "shrink-0 rounded-lg border px-3 py-1.5 text-xs transition-colors",
+                        index === frameIndex
+                          ? "border-brand-text/50 bg-brand/12 text-ink"
+                          : "border-line bg-surface text-ink-muted hover:text-ink",
+                      )}
+                    >
+                      {index + 1}
+                      <span className="ml-1.5 font-mono text-[10px] text-ink-faint">
+                        {item.detections.length}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+
+              {frame ? (
+                <div className="grid gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+                  <AnnotatedFrame
+                    frame={frame}
+                    activeIndex={active}
+                    onHover={setActive}
+                  />
+                  <DetectionList
+                    frame={frame}
+                    activeIndex={active}
+                    onHover={setActive}
+                  />
+                </div>
+              ) : null}
             </div>
           ) : null}
         </>
       ) : null}
-    </form>
+    </div>
   );
 }
