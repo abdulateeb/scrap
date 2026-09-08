@@ -1,0 +1,89 @@
+# Manual production deploy. Pushing to main never deploys by itself;
+# open Actions, pick "Deploy Scrap" and press Run workflow.
+#
+# The automatic deploys are switched off in apps/web/vercel.json and
+# apps/api/vercel.json. This workflow is the only thing that ships to
+# production, so a deploy is always a decision somebody made.
+name: Deploy Scrap
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Which application to deploy
+        type: choice
+        options:
+          - both
+          - web
+          - api
+        default: both
+
+# One deploy at a time; a second run waits for the first to finish.
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+env:
+  # Not secrets. These only name the project, and are useless without the token.
+  VERCEL_ORG_ID: team_2hH8TLBSCswzg7s0STI6Bone
+  WEB_PROJECT_ID: prj_PQLNMnRW4Sz49k36Y6aHPBxEhjHW
+  API_PROJECT_ID: prj_G5HIKD31b6RqS11VfUBLIrVok9qh
+  WEB_URL: https://scrap-mrf.vercel.app
+  API_URL: https://scrap-api-sable.vercel.app
+
+jobs:
+  deploy:
+    name: Deploy to Vercel
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install the Vercel CLI
+        run: npm install -g vercel@latest
+
+      # Both commands run from the repository root, not from inside the app
+      # folder. Each Vercel project already has its own root directory set to
+      # apps/web or apps/api, so sending the whole repository is what makes a
+      # manual deploy build exactly the same way a Git deploy used to.
+      - name: Deploy the API
+        if: inputs.target == 'both' || inputs.target == 'api'
+        env:
+          VERCEL_PROJECT_ID: ${{ env.API_PROJECT_ID }}
+        run: vercel deploy --prod --yes --token="${{ secrets.VERCEL_TOKEN }}"
+
+      - name: Deploy the web application
+        if: inputs.target == 'both' || inputs.target == 'web'
+        env:
+          VERCEL_PROJECT_ID: ${{ env.WEB_PROJECT_ID }}
+        run: vercel deploy --prod --yes --token="${{ secrets.VERCEL_TOKEN }}"
+
+      # A deploy that returns green but serves a broken site is worse than a
+      # deploy that fails loudly, so check what is actually being served.
+      - name: Health checks
+        run: |
+          fail=0
+
+          if [ "${{ inputs.target }}" != "web" ]; then
+            api=$(curl -s -o /dev/null -w "%{http_code}" "$API_URL/api/health" || true)
+            echo "API health: $api"
+            [ "$api" = "200" ] || fail=1
+          fi
+
+          if [ "${{ inputs.target }}" != "api" ]; then
+            web=$(curl -s -o /dev/null -w "%{http_code}" "$WEB_URL" || true)
+            echo "Web home: $web"
+            [ "$web" = "200" ] || fail=1
+          fi
+
+          if [ "$fail" = "1" ]; then
+            echo "Deployment finished but the site did not answer correctly."
+            exit 1
+          fi
+          echo "All checks passed."
