@@ -32,6 +32,18 @@ class ModelNotConfigured(RuntimeError):
     """Raised when a classification is asked for without an API key."""
 
 
+def resolve_key(api_key: str | None = None) -> str:
+    """The key this call should use.
+
+    A key sent by the browser wins, because it belongs to the person making the
+    request and they chose it deliberately. The environment key is the fallback,
+    which is what a deployment with its own key has always run on. Neither being
+    present is the one case that cannot be served.
+    """
+    caller = (api_key or "").strip()
+    return caller or settings.gemini_api_key.strip()
+
+
 class ClassificationFailed(RuntimeError):
     """Raised when the model could not produce a usable answer."""
 
@@ -137,12 +149,16 @@ async def warm_up() -> None:
 
 
 async def classify_frame(
-    image_bytes: bytes, media_type: str = "image/jpeg"
+    image_bytes: bytes,
+    media_type: str = "image/jpeg",
+    api_key: str | None = None,
 ) -> list[ClassifiedItem]:
     """Classify one frame. Retries once, then gives up with a clear error."""
-    if not settings.model_configured:
+    key = resolve_key(api_key)
+    if not key:
         raise ModelNotConfigured(
-            "No model API key is set. Add GEMINI_API_KEY to the environment."
+            "No model API key is set. Add one with Change API key in the "
+            "sidebar, or set GEMINI_API_KEY on the service."
         )
 
     last_error: Exception | None = None
@@ -152,7 +168,7 @@ async def classify_frame(
             response = await litellm.acompletion(
                 model=settings.model_name,
                 messages=_messages(image_bytes, media_type),
-                api_key=settings.gemini_api_key,
+                api_key=key,
                 # No temperature override. Gemini 3 models degrade badly below
                 # the default, and LiteLLM warns that a low value can send them
                 # into loops, so sampling guidance lives in the system prompt.
