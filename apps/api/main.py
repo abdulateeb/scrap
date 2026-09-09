@@ -60,7 +60,10 @@ app.add_middleware(
     allow_origins=["*"],
     allow_credentials=False,
     allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["Content-Type"],
+    # X-Scrap-Api-Key carries the model key the browser saved. Without it named
+    # here the preflight refuses the header, and a cross host deployment would
+    # silently fall back to the service key on every request.
+    allow_headers=["Content-Type", "X-Scrap-Api-Key"],
 )
 
 app.include_router(health.router, prefix="/api")
