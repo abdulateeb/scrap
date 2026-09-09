@@ -47,11 +47,12 @@ export function Sidebar() {
         ))}
       </ul>
 
+      {/* No heading over it. One button does not need a section named for it,
+          and the label said less than the button already does. */}
       <div className="mt-auto pt-8">
-        <SectionLabel>Settings</SectionLabel>
         {/* Sized by its own label. Stretched across the column it stopped
             looking like a control and started looking like a bar. */}
-        <ApiKeyDialog className="mt-3" />
+        <ApiKeyDialog />
       </div>
     </div>
   );
