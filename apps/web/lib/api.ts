@@ -1,5 +1,6 @@
 "use client";
 
+import { getApiKey } from "@/lib/api-key";
 import { env } from "@/lib/env";
 import type { ApiError, Result } from "@/lib/types";
 import { formatBytes } from "@/lib/utils";
@@ -11,8 +12,22 @@ import { formatBytes } from "@/lib/utils";
  * path that next.config.ts rewrites to the Python service.
  */
 
+/**
+ * Carries the key the person saved in this browser. The service uses it for
+ * that one request and falls back to its own key when the header is absent, so
+ * a browser with no key saved behaves exactly as it always did.
+ */
+const API_KEY_HEADER = "X-Scrap-Api-Key";
+
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const response = await fetch(`${env.apiBasePath}${path}`, init);
+  const headers = new Headers(init.headers);
+  const key = getApiKey();
+  if (key) headers.set(API_KEY_HEADER, key);
+
+  const response = await fetch(`${env.apiBasePath}${path}`, {
+    ...init,
+    headers,
+  });
 
   if (!response.ok) {
     let detail = `Request failed with status ${response.status}.`;
