@@ -1,13 +1,19 @@
 import Image from "next/image";
 
+import { ApiKeyDialog } from "@/components/shell/api-key-dialog";
+import { SectionLabel } from "@/components/ui/card";
 import { MATERIAL_LIST } from "@/lib/materials";
 
 /**
- * The sidebar carries the mark and the material key.
+ * The sidebar carries the mark, the material key and the settings.
  *
  * These nine categories are the vocabulary of the whole product: the model
  * answers in them and the composition is expressed in them, so the key stays on
  * screen and any colour can be read without a legend beside it.
+ *
+ * Settings sit at the foot of the column rather than beside the mark, because
+ * changing a key is something done once in a while and it should never compete
+ * with the material key for attention.
  */
 export function Sidebar() {
   return (
@@ -21,9 +27,7 @@ export function Sidebar() {
         className="h-6 w-auto"
       />
 
-      <p className="mt-9 font-mono text-[10px] font-medium tracking-[0.18em] text-ink-faint uppercase">
-        Material categories
-      </p>
+      <SectionLabel className="mt-9">Material categories</SectionLabel>
       <ul className="mt-3 space-y-1.5">
         {MATERIAL_LIST.map((material) => (
           <li key={material.key} className="flex items-center gap-2.5">
@@ -38,30 +42,39 @@ export function Sidebar() {
           </li>
         ))}
       </ul>
+
+      <div className="mt-auto pt-8">
+        <SectionLabel>Settings</SectionLabel>
+        <ApiKeyDialog className="mt-3 w-full" />
+      </div>
     </div>
   );
 }
 
 /**
- * The same two things the sidebar carries, laid out for a phone.
+ * The same things the sidebar carries, laid out for a phone.
  *
- * The mark sits on its own line so the product is named, and the material key
- * runs underneath as a single row that scrolls sideways. A nine item column
- * would eat most of a phone screen before any of the actual work is visible,
- * but dropping the key altogether would leave the colours on the picture
- * meaning nothing.
+ * The mark sits on its own line so the product is named, with the key control
+ * on the end of that line, and the material key runs underneath as a single row
+ * that scrolls sideways. A nine item column would eat most of a phone screen
+ * before any of the actual work is visible, but dropping the key altogether
+ * would leave the colours on the picture meaning nothing.
  */
 export function MobileBar() {
   return (
     <div className="px-4 py-3">
-      <Image
-        src="/scrap_wordmark.png"
-        alt="Scrap"
-        width={4059}
-        height={708}
-        priority
-        className="h-5 w-auto"
-      />
+      <div className="flex items-center justify-between gap-3">
+        <Image
+          src="/scrap_wordmark.png"
+          alt="Scrap"
+          width={4059}
+          height={708}
+          priority
+          className="h-5 w-auto"
+        />
+
+        <ApiKeyDialog className="shrink-0" label="API key" />
+      </div>
 
       <ul className="scroll-slim mt-2.5 flex gap-3 overflow-x-auto pb-1">
         {MATERIAL_LIST.map((material) => (
