@@ -18,6 +18,7 @@ import base64
 import logging
 import time
 from collections import defaultdict
+from functools import partial
 from typing import Any, TypedDict
 
 from langgraph.graph import END, START, StateGraph
@@ -45,6 +46,10 @@ class RunState(TypedDict, total=False):
     content_type: str
     max_frames: int
     tile: bool
+    # The key the browser sent, if it sent one. It rides through the graph
+    # rather than being read from the environment inside the model call, so one
+    # request never picks up the key belonging to another.
+    api_key: str | None
 
     frames: list[ExtractedFrame]
     results: list[Classified]
@@ -73,12 +78,16 @@ async def classify_frames(state: RunState) -> dict[str, Any]:
     # upload stays as thorough as it was.
     tiled = len(frames) == 1 and state.get("tile", True)
 
+    # Bound once here so both the tiled path and the single pass call the model
+    # with the same key, and so classify_tiled keeps taking a plain callable.
+    classify_one = partial(classify_frame, api_key=state.get("api_key"))
+
     async def one(frame: ExtractedFrame) -> Classified:
         try:
             if tiled:
-                return frame, await classify_tiled(frame.jpeg, classify_frame), None
+                return frame, await classify_tiled(frame.jpeg, classify_one), None
             async with semaphore:
-                return frame, await classify_frame(frame.jpeg), None
+                return frame, await classify_one(frame.jpeg), None
         except (ClassificationFailed, ModelNotConfigured) as error:
             logger.warning("Frame %d: %s", frame.index, error)
             return frame, [], str(error)
@@ -165,6 +174,7 @@ async def classify(
     source_name: str,
     max_frames: int,
     tile: bool = True,
+    api_key: str | None = None,
 ) -> Result:
     started = time.perf_counter()
 
@@ -174,6 +184,7 @@ async def classify(
             "content_type": content_type,
             "max_frames": max_frames,
             "tile": tile,
+            "api_key": api_key,
         }
     )
 
