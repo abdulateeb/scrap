@@ -71,7 +71,10 @@ export function ApiKeyDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogTrigger asChild>
-        <Button type="button" variant="silver" size="sm" className={className}>
+        {/* The green Radix control, the same one Save inside the dialog uses,
+            and at the same size. The smaller size uses a tighter ring and a
+            shorter body, which reads as a plain outlined box instead. */}
+        <Button type="button" variant="classic" className={className}>
           <KeyRound aria-hidden />
           {label}
         </Button>
