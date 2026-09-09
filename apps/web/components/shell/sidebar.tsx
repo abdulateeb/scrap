@@ -49,7 +49,9 @@ export function Sidebar() {
 
       <div className="mt-auto pt-8">
         <SectionLabel>Settings</SectionLabel>
-        <ApiKeyDialog className="mt-3 w-full" />
+        {/* Sized by its own label. Stretched across the column it stopped
+            looking like a control and started looking like a bar. */}
+        <ApiKeyDialog className="mt-3" />
       </div>
     </div>
   );
