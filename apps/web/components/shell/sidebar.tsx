@@ -24,7 +24,11 @@ export function Sidebar() {
         width={4059}
         height={708}
         priority
-        className="h-6 w-auto"
+        // The picture file carries empty space of its own down both sides,
+        // which pushed the mark noticeably further in than the headings below
+        // it. Pulling it back by that much lines the S up with everything else
+        // in the column.
+        className="-ml-3 h-6 w-auto"
       />
 
       <SectionLabel className="mt-9">Material categories</SectionLabel>
@@ -70,7 +74,9 @@ export function MobileBar() {
           width={4059}
           height={708}
           priority
-          className="h-5 w-auto"
+          // Same empty space in the file, and the mark is smaller here, so it
+          // is pulled back by a little less.
+          className="-ml-2.5 h-5 w-auto"
         />
 
         <ApiKeyDialog className="shrink-0" label="API key" />
